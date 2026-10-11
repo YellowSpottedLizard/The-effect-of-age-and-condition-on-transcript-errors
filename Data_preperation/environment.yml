@@ -1,0 +1,74 @@
+# =============================================================================
+# transcription_errors - analysis environment
+# =============================================================================
+# Environment for the transcript-error pipeline (Stages 0-3) accompanying
+# "The effect of age and condition on transcript errors".
+#
+#   conda env create -f environment.yml
+#   conda activate transcription_errors
+#
+# Two groups of tools are pinned here:
+#
+#   (a) UPSTREAM, run once to produce the BAMs and VCFs this repository starts
+#       from (read merging, trimming, alignment, variant calling). Listed so the
+#       analysis can be reproduced from raw reads, not only from the VCFs.
+#   (b) PIPELINE, everything Stages 0-3 in this repository actually import or
+#       shell out to.
+#
+# The R environment used for the models and figures is separate; see
+# r-environment.yml.
+#
+# VERIFY BEFORE PUBLISHING. The pins below are transcribed from the manuscript
+# Methods and from the VCF headers, not read off the machine that produced the
+# results. Regenerate them from the live environment and reconcile any
+# differences before this file goes on GitHub:
+#
+#   conda activate transcription_errors
+#   conda env export --no-builds > environment.observed.yml
+#   conda list --explicit > environment.lock.txt   # exact, platform-specific
+#
+# A lockfile that does not match what was run is worse than no lockfile.
+# =============================================================================
+name: transcription_errors
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # ---- interpreter -------------------------------------------------------
+  - python=3.11
+
+  # ---- (b) pipeline: Python libraries -----------------------------------
+  - pysam=0.22.1          # VCF/BAM/FASTA access (stages 0c, 1, 2b, 3)
+  - pandas=2.2.2          # tables throughout
+  - numpy=1.26.4          # dense per-base arrays, depth aggregation
+  - pyarrow=16.1.0        # parquet I/O for every intermediate table
+  - biopython=1.83        # Bio.Data.CodonTable, Nei-Gojobori N/S (stage 0c)
+
+  # ---- (b) pipeline: command-line tools ---------------------------------
+  # samtools: depth (-d 0 -Q 1 -q 73) and faidx. The -d 0 flag matters: older
+  # samtools capped per-position depth at 8000 and the mitochondrion here runs
+  # at ~22,000x, so an unpinned cap silently truncates the mito denominator.
+  - samtools=1.20
+  - bedtools=2.31.1       # merge / complement, stage 0a BEDs
+  - snpeff=5.2            # consequence annotation, stage 0b/2b
+  - openjdk=17            # snpEff runtime
+
+  # ---- (a) upstream: reads -> BAM -> VCF ---------------------------------
+  # NOTE: the manuscript Methods give Freebayes 1.3.7, but the VCF headers in
+  # concatenated_freebayes_clean/ read '##source=freeBayes v1.3.2-dirty'.
+  # Resolve this before publication and pin whichever actually produced the
+  # calls; the two differ in allele decomposition behaviour, which is exactly
+  # what the Stage 1 allele-trimming step compensates for.
+  - freebayes=1.3.7
+  - pear=0.9.10           # overlapping read-pair merge
+  - cutadapt=4.5          # quality trimming (-q 60,60 -m 1)
+  - star=2.7.9a           # alignment to dm6
+  - rseqc=5.0.3           # inner-distance distributions (Figure S1)
+  - multiqc=1.21          # Figure S1 assembly
+
+  # ---- convenience -------------------------------------------------------
+  - pip
+  - pip: []

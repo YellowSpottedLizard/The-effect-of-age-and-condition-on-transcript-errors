@@ -1,0 +1,10 @@
+{
+  "filter": "across_rate",
+  "params": {
+    "across_rate": 0.001
+  },
+  "mito_contig": "M",
+  "min_depth": 100,
+  "n_samples": 286,
+  "min_callable": 1
+}
