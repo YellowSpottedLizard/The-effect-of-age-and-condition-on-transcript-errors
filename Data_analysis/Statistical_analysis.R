@@ -497,23 +497,78 @@ for (ps in panel_specs) {
 
 
 
+
+
+
+#### ---- Baseline-adjusted correlation of Age vs Status spectra ---------- ####
+
+# permutation p for a correlation (two-sided)
+perm_p <- function(x, y, method = "pearson", n = 1e4) {
+  obs <- cor(x, y, method = method)
+  (1 + sum(abs(replicate(n, cor(x, sample(y), method = method))) >= abs(obs))) / (n + 1)
+}
+
 diag <- channel_summary %>%
-  transmute(channel, baseline = rate_per_Mb, age_d = age_diff, status_d = status_diff)
+  transmute(channel, baseline = rate_per_Mb, age_d = age_diff, status_d = status_diff) %>%
+  mutate(
+    # (1) additive effects with the proportional-to-baseline part removed
+    age_res    = resid(lm(age_d    ~ 0 + baseline)),
+    status_res = resid(lm(status_d ~ 0 + baseline)),
+    # (2) log rate ratios = model coefficients (baseline-free by construction)
+    age_lrr    = map_dbl(channel, ~ fixef(channel_fits[[.x]])$cond["AgeOld"]),
+    status_lrr = map_dbl(channel, ~ fixef(channel_fits[[.x]])$cond["Mutation_StatusDeletion"])
+  )
 
 cat(sprintf("\nr(age, baseline) = %.2f | r(status, baseline) = %.2f | r(age, status) = %.2f\n",
             cor(diag$age_d, diag$baseline), cor(diag$status_d, diag$baseline),
             cor(diag$age_d, diag$status_d)))
 
-# remove the proportional-to-baseline part (regression through the origin),
-# then correlate what is left
-diag <- diag %>%
-  mutate(age_res    = resid(lm(age_d    ~ 0 + baseline)),
-         status_res = resid(lm(status_d ~ 0 + baseline)))
+# one scatter panel with r, rho and permutation p
+corr_panel <- function(df, x, y, xlab, ylab, title, identity_line = FALSE) {
+  xv <- df[[x]]; yv <- df[[y]]
+  set.seed(1)
+  r   <- cor(xv, yv); rho <- cor(xv, yv, method = "spearman")
+  pp  <- perm_p(xv, yv)
+  lab <- sprintf("r = %.2f (perm. p = %.3f)\n\u03C1 = %.2f", r, pp, rho)
+  cat(sprintf("%s: %s\n", title, gsub("\n", " | ", lab)))
+  
+  p <- ggplot(df, aes(.data[[x]], .data[[y]])) +
+    geom_hline(yintercept = 0, colour = "grey85") +
+    geom_vline(xintercept = 0, colour = "grey85")
+  if (identity_line)
+    p <- p + geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55")
+  p +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE, colour = "#33BB36",
+                fill = "#fdd0a2", linewidth = 0.7, alpha = 0.4) +
+    geom_point(size = 2.8, colour = "#9B77BB") +
+    geom_text_repel(aes(label = channel), size = 3, seed = 1,
+                    min.segment.length = 0, box.padding = 0.4, colour = "grey25") +
+    annotate("text", x = -Inf, y = Inf, label = lab,
+             hjust = -0.08, vjust = 1.3, size = 3.6, colour = "grey20", lineheight = 0.95) +
+    labs(x = xlab, y = ylab, title = title) +
+    theme_classic(base_size = 12) +
+    theme(plot.title = element_text(size = 11, face = "bold"))
+}
 
-ct_adj <- cor.test(diag$age_res, diag$status_res)
-cat(sprintf("Baseline-adjusted: r = %.2f (p = %.3f) | Spearman rho = %.2f\n",
-            ct_adj$estimate, ct_adj$p.value,
-            cor(diag$age_res, diag$status_res, method = "spearman")))
+pC <- corr_panel(diag, "age_res", "status_res",
+                 xlab = "Age effect, residual from baseline (mismatch / Mb)",
+                 ylab = "Condition effect, residual from baseline (mismatch / Mb)",
+                 title = "Baseline-adjusted additive effects")
+
+pD <- corr_panel(diag, "age_lrr", "status_lrr",
+                 xlab = "Age effect, log rate ratio (Old / Young)",
+                 ylab = "Condition effect, log rate ratio (Del / Ctrl)",
+                 title = "Multiplicative effects (log rate ratios)",
+                 identity_line = TRUE)
+
+fig_adj <- (pC | pD) + plot_annotation(tag_levels = "A", title = FILTER)
+fig_adj
+
+ggsave("Fig_baseline_adjusted_corr.png", fig_adj, width = 11, height = 5.2, dpi = 300)
+ggsave("Fig_baseline_adjusted_corr.svg", fig_adj, width = 11, height = 5.2)
+
+
+
 
 
 
