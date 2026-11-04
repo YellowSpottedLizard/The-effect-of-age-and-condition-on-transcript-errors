@@ -1,6 +1,16 @@
 # ============================================================================
 # Figure S4 — Mismatch rate by Age x genotype (single panel)
-#  
+#   f1_none, nuclear genic positions only:
+#     numerator   = synonymous + missense (+ nonsense) mismatches
+#     denominator = depth_sum_genic
+#
+# Self-contained: loads + prepares its own data from stage3_results/,
+# builds the figure, and saves the figure + accompanying tables into this
+# figure's own folder under Manuscript files/Figs/.
+#
+# Requires an RStudio project (.Rproj) OR a .here marker in the main
+# "Transcription errors" folder so here() anchors to the project root.
+# Run from anywhere inside the project.
 # ============================================================================
 
 

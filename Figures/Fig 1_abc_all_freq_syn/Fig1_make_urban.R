@@ -1,12 +1,18 @@
 # ============================================================================
 # Figure 1 — Mismatch rate by Age x genotype (three panels)
-#  
-
+#   A : unfiltered          total mismatches / Mb          (total depth)
+#   B : across_1pct    syn + missense mismatches / Mb (genic depth)
+#   C : unfiltered        synonymous mismatches / Mb     (synonymous depth)
+#
+# ============================================================================
+rm(list = ls())
 
 library(here)
 library(tidyverse)
 library(ggbeeswarm)
 library(patchwork)
+library(glmmTMB)
+library(emmeans)
 
 ## ---- paths ---------------------------------------------------------------- #
 RESULTS_DIR <- here("Data_Results")
@@ -60,26 +66,51 @@ load_rate <- function(filter, num, den) {
     )
 }
 
-datA <- load_rate(FILTER_A, "total_mutations",                             "depth_sum_total")
-datB <- load_rate(FILTER_B, "cds_mutations",                               "depth_sum_cds")
-datC <- load_rate(FILTER_C, "synonymous_mutations",                        "depth_sum_synonymous")
+datA <- load_rate(FILTER_A, "total_mutations",      "depth_sum_total")
+datB <- load_rate(FILTER_B, "cds_mutations",        "depth_sum_cds")
+datC <- load_rate(FILTER_C, "synonymous_mutations", "depth_sum_synonymous")
+
+## ---- model-based group means + 95% CI ------------------------------------- #
+# Same model family as the text: NB GLMM with a Deletion random effect and a
+# log-depth offset. emmeans(offset = log(1e6)) + regrid() puts estimates and
+# CIs on the additive per-Mb scale, matching the contrasts reported in the text.
+# If the text model has extra terms (dispersion formula, random slopes, ...),
+# copy that formula here so the bars match the reported CIs exactly.
+group_ci <- function(df) {
+  m <- glmmTMB(
+    numerator ~ Age * Mutation_Status + (1 | Deletion) + offset(log(denominator)),
+    family = nbinom2, data = df
+  )
+  emmeans(m, ~ Age * Mutation_Status, offset = log(1e6)) %>%
+    regrid() %>%
+    confint(level = 0.95) %>%
+    as_tibble() %>%
+    rename(mean = any_of(c("response", "rate", "emmean")),
+           lo   = any_of(c("lower.CL", "asymp.LCL")),
+           hi   = any_of(c("upper.CL", "asymp.UCL"))) %>%
+    select(Age, Mutation_Status, mean, lo, hi)
+}
+
+ciA <- group_ci(datA)
+ciB <- group_ci(datB)
+ciC <- group_ci(datC)
 
 ## ---- equal-span, panel-specific y windows --------------------------------- #
 # Each panel gets its own window centred on its own data, but every window is
 # the SAME width in data units — so vertical distances are comparable across
 # panels even though the absolute values differ.
 
-panel_range <- function(df) {
-  m <- df %>%
-    group_by(Age, Mutation_Status) %>%
-    summarise(mean = mean(rate_per_Mb),
-              sem  = if (n() > 1) sd(rate_per_Mb) / sqrt(n()) else 0,
-              .groups = "drop")
-  range(c(df$rate_per_Mb, m$mean - m$sem, m$mean + m$sem), na.rm = TRUE)
+panel_range <- function(df, ci) {
+  range(c(df$rate_per_Mb, ci$lo, ci$hi), na.rm = TRUE)
 }
 
-rngs <- list(A = panel_range(datA), B = panel_range(datB), C = panel_range(datC))
-SPAN <- max(vapply(rngs, diff, numeric(1))) * 1.0 # widest panel + X% headroom
+rngs <- list(A = panel_range(datA, ciA),
+             B = panel_range(datB, ciB),
+             C = panel_range(datC, ciC))
+
+# A and B share one window covering both ranges; C keeps its own position
+rng_AB <- range(c(rngs$A, rngs$B))
+SPAN   <- max(diff(rng_AB), diff(rngs$C))          # same span in all three panels
 
 make_lims <- function(r, span = SPAN) {
   mid <- mean(r)
@@ -89,7 +120,7 @@ make_lims <- function(r, span = SPAN) {
   c(lo, hi)
 }
 
-lims <- lapply(rngs, make_lims)
+lims <- list(A = make_lims(rng_AB), B = make_lims(rng_AB), C = make_lims(rngs$C))
 
 # identical tick spacing in every panel (same visual grid, different offsets)
 TICK <- signif(SPAN / 4, 1)
@@ -99,23 +130,18 @@ TICK <- signif(SPAN / 4, 1)
 pal <- c("Young" = "#33BB36", "Old" = "#9B77BB")
 W   <- 0.6
 
-panel <- function(df, title, ylim, show_ylab = FALSE) {
-  means <- df %>%
-    group_by(Age, Mutation_Status) %>%
-    summarise(mean = mean(rate_per_Mb),
-              sem  = if (n() > 1) sd(rate_per_Mb) / sqrt(n()) else 0,
-              .groups = "drop")
+panel <- function(df, ci, title, ylim, show_ylab = FALSE) {
   ggplot(df, aes(Mutation_Status, rate_per_Mb, fill = Age, group = Age)) +
     geom_beeswarm(dodge.width = W, cex = 1.3, size = 1.5, alpha = 1,
                   priority = "density", shape = 21, colour = "white", stroke = 0.3) +
-    geom_line(data = means, inherit.aes = FALSE,
+    geom_line(data = ci, inherit.aes = FALSE,
               aes(Mutation_Status, mean, group = Age),
               position = position_dodge(W), linewidth = 0.3, colour = "black") +
-    geom_errorbar(data = means, inherit.aes = FALSE,
-                  aes(Mutation_Status, ymin = mean - sem, ymax = mean + sem, group = Age),
+    geom_errorbar(data = ci, inherit.aes = FALSE,
+                  aes(Mutation_Status, ymin = lo, ymax = hi, group = Age),
                   position = position_dodge(W), width = 0.14,
                   linewidth = 0.3, colour = "black") +
-    geom_point(data = means, inherit.aes = FALSE,
+    geom_point(data = ci, inherit.aes = FALSE,
                aes(Mutation_Status, mean, group = Age),
                position = position_dodge(W), size = 0.6, colour = "black") +
     scale_fill_manual(values = pal, name = "Age") +
@@ -130,13 +156,13 @@ panel <- function(df, title, ylim, show_ylab = FALSE) {
           axis.text  = element_text(size = 7))
 }
 
-pA <- panel(datA, "All callable positions",              lims$A, show_ylab = TRUE)
-pB <- panel(datB, "1% filter (coding positions)",    lims$B)
-pC <- panel(datC, "Synonymous mismatches",           lims$C)
+pA <- panel(datA, ciA, "All callable positions",       lims$A, show_ylab = TRUE)
+pB <- panel(datB, ciB, "1% filter (coding positions)", lims$B)
+pC <- panel(datC, ciC, "Synonymous mismatches",        lims$C)
 
 ## ---- assemble ------------------------------------------------------------- #
 pA <- pA + labs(tag = "A") + theme(plot.tag.position = c(0, 1),
-                                   plot.tag = element_text( hjust = -2.6, vjust = 0))
+                                   plot.tag = element_text(hjust = -2.6, vjust = 0))
 pB <- pB + labs(tag = "B") + theme(plot.tag.position = c(0, 1),
                                    plot.tag = element_text(hjust = -1.4, vjust = 0))
 pC <- pC + labs(tag = "C") + theme(plot.tag.position = c(0, 1),
@@ -145,25 +171,36 @@ fig1 <- (pA | pB | pC) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom",
         legend.box.spacing = unit(1.5, "pt"),
-        legend.text = element_text( size = 8))
+        legend.text = element_text(size = 8))
 
 fig1
-
 
 ggsave(file.path(OUT_DIR, "Fig1_mismatch_rate_panels_u.pdf"), fig1, width = 6.27, height = 3)
 ggsave(file.path(OUT_DIR, "Fig1_mismatch_rate_panels_u.png"), fig1, width = 6.27, height = 3, dpi = 300)
 ggsave(file.path(OUT_DIR, "Fig1_mismatch_rate_panels_u.svg"), fig1, width = 6.27, height = 3, dpi = 300)
+
 ## ---- accompanying tables -------------------------------------------------- #
-group_summary <- bind_rows(
+# Raw group means/SD/SEM alongside the plotted model-based means and 95% CIs
+raw_summary <- bind_rows(
   datA %>% mutate(panel = paste0("A_", FILTER_A)),
   datB %>% mutate(panel = paste0("B_", FILTER_B)),
   datC %>% mutate(panel = paste0("C_", FILTER_C))
 ) %>%
   group_by(panel, Age, Mutation_Status) %>%
-  summarise(mean_per_Mb = mean(rate_per_Mb),
-            sd_per_Mb   = sd(rate_per_Mb),
-            sem_per_Mb  = sd(rate_per_Mb) / sqrt(n()),
+  summarise(raw_mean_per_Mb = mean(rate_per_Mb),
+            sd_per_Mb       = sd(rate_per_Mb),
+            sem_per_Mb      = sd(rate_per_Mb) / sqrt(n()),
             n = n(), .groups = "drop")
+
+model_summary <- bind_rows(
+  ciA %>% mutate(panel = paste0("A_", FILTER_A)),
+  ciB %>% mutate(panel = paste0("B_", FILTER_B)),
+  ciC %>% mutate(panel = paste0("C_", FILTER_C))
+) %>%
+  rename(emm_per_Mb = mean, ci95_lo = lo, ci95_hi = hi)
+
+group_summary <- left_join(raw_summary, model_summary,
+                           by = c("panel", "Age", "Mutation_Status"))
 write_csv(group_summary, file.path(OUT_DIR, "Fig1_group_summary.csv"))
 
 persample <- bind_rows(

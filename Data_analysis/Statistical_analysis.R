@@ -12,12 +12,10 @@ library(jsonlite)
 library(conflicted)
 library(performance)
 library(conflicted)
-
 library(here)
 library(ggbeeswarm)
-
-
 conflicts_prefer(dplyr::filter)
+
 
 
 # -------- CHANGE THE FILTER HERE -------------------------------------------- #
@@ -27,9 +25,24 @@ FILTER       <- "unfiltered"
 #  across_0p01pct, across_0p1pct, across_1pct, across_5pct, unfiltered  """
 
 
+# -------- CHANGE THE DATA BEING ANALYSED HERE -------------------------------------------- #
+DATA_TYPE    <- "total"   # one of: "total", "cds", "mito", "synonymous", "synonymous_mito"
 
-RESULTS_DIR  <- "../stage3"                              # holds *.summary.tsv etc.
-META_FILE    <- "../stage3/metadata_minimal.txt"
+DATA_SPECS <- list(
+  total           = list(num = "total_mutations",           den = "depth_sum_total",           title = "All callable positions"),
+  cds             = list(num = "cds_mutations",             den = "depth_sum_cds",             title = "Coding positions"),
+  synonymous      = list(num = "synonymous_mutations",      den = "depth_sum_synonymous",      title = "Synonymous positions")
+)
+stopifnot("DATA_TYPE must be one of the names in DATA_SPECS" = DATA_TYPE %in% names(DATA_SPECS))
+
+NUM   <- DATA_SPECS[[DATA_TYPE]]$num
+DEN   <- DATA_SPECS[[DATA_TYPE]]$den
+TITLE <- DATA_SPECS[[DATA_TYPE]]$title
+
+
+
+RESULTS_DIR  <- "Data_Results"                              # holds *.summary.tsv etc.
+META_FILE    <- "Data_Results/metadata_minimal.txt"
 
 
 available_filters <- sort(sub("\\.summary\\.tsv$", "",
@@ -110,45 +123,11 @@ DATAFRAME <- dat %>%
 
 
 
-
-###Choose which one, coding, mito, or all positions
-#TOTAL
+###Model for the data type chosen in DATA_TYPE
 m_full <- glmmTMB(
-  total_mutations ~ Age * Mutation_Status + offset(log(depth_sum_total)) + (1 | Deletion),
+  as.formula(paste(NUM, "~ Age * Mutation_Status + offset(log(", DEN, ")) + (1 | Deletion)")),
   family = nbinom2, data = DATAFRAME
 )
-
-
-###CDS
-m_full <- glmmTMB(
-  cds_mutations ~ Age * Mutation_Status + offset(log(depth_sum_cds)) + (1 | Deletion),
-  family = nbinom2, data = DATAFRAME
-)
-
-
-###MITO
-m_full <- glmmTMB(
-  total_mutations_mito ~ Age * Mutation_Status + offset(log(depth_sum_total_mito)) + (1 | Deletion),
-  family = nbinom2, data = DATAFRAME
-)
-
-
-###SYNONUMOUS
-m_full <- glmmTMB(
-  synonymous_mutations ~ Age * Mutation_Status + offset(log(depth_sum_synonymous)) + (1 | Deletion),
-  family = nbinom2, data = DATAFRAME
-)
-
-
-
-###SYNONUMOUS MITO
-m_full <- glmmTMB(
-  synonymous_mutations_mito ~ Age * Mutation_Status + offset(log(depth_sum_synonymous_mito)) + (1 | Deletion),
-  family = nbinom2, data = DATAFRAME
-)
-
-
-
 
 
 
@@ -199,16 +178,16 @@ print(paste("X^2 value" , round(chi2, 2) ) )
 
 
 
+
 #####MUTATION RATES -----------------------------------------------------------------------------------------------------
+# NUM, DEN and TITLE are set from DATA_TYPE at the top of the script
 
-###TOTAL
-NUM <- "total_mutations";      DEN <- "depth_sum_total";      TITLE <- "All callable positions"
+plot_dat <- DATAFRAME %>%
+  filter(!is.na(Age)) %>%
+  mutate(rate_per_Mb = .data[[NUM]] / .data[[DEN]] * 1e6)
 
-###CDS
-NUM <- "cds_mutations";        DEN <- "depth_sum_cds";        TITLE <- "Coding positions"
 
-###MITO
-NUM <- "total_mutations_mito"; DEN <- "depth_sum_total_mito"; TITLE <- "Mitochondrial"
+
 
 
 plot_dat <- DATAFRAME %>%

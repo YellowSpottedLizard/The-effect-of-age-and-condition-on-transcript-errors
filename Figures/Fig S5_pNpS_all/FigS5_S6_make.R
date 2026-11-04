@@ -1,9 +1,16 @@
 # ============================================================================
-# Figures S6 / S7 — pN/pS by Age x Mutation status (two panels)
+# Figures S5 / S6 — pN/pS by Age x Mutation status (two panels)
 #   A : weighted dN/dS   (neutral line at 1 shown; 1 is a valid null here)
 #   B : unweighted pN/pS (NO line at 1 — spectrum bias shifts the neutral point)
 #
-
+# One parameterized script for both supplements:
+#   FILTER <- "f1_none"          -> Fig S2  (folder "Fig S2_pNpS_all")
+#   FILTER <- "f8_a1pct_c001"    -> Fig S3  (folder "Fig S3_pNpS_filter")
+# Set FILTER below and run; it writes into the matching folder automatically.
+#
+# Self-contained: loads + prepares its own data, builds the figure, and saves
+# the figure + a group summary table. Requires an .Rproj/.here marker in the
+# main project folder so here() anchors to the project root.
 # ============================================================================
 rm(list = ls())
 
@@ -18,8 +25,8 @@ FILTER <- "unfiltered"          # unfiltered <- switch to "across_1pct" for Fig 
 
 # map filter -> output folder (matches the existing Figs/ subfolders)
 FOLDER <- dplyr::case_when(
-  FILTER == "unfiltered"       ~ "Fig S7_pNpS_all",
-  FILTER == "across_1pct" ~ "Fig S8_pNpS_filter",
+  FILTER == "unfiltered"       ~ "Fig S5_pNpS_all",
+  FILTER == "across_1pct" ~ "Fig S6_pNpS_filter",
   TRUE                      ~ paste0("Fig S_pNpS_", FILTER)   # fallback
 )
 
@@ -58,13 +65,14 @@ YMAX <- DATAFRAME %>%
   max()
 YMAX <- max(YMAX, 1.03) * 1.05
 
+YMAX <- 1.1
 
-panel <- function(col, ylab, title, show_null1 = FALSE) {
+
+panel <- function(col, ylab, title) {
   df <- DATAFRAME %>% mutate(val = .data[[col]]) %>% filter(is.finite(val), val > 0)
   
-  
-  
-  p <- ggplot(df, aes(Age, val, fill = Mutation_Status)) +
+  ggplot(df, aes(Age, val, fill = Mutation_Status)) +
+    geom_hline(yintercept = 1, linetype = "dotted", colour = "grey40") +   # drawn behind the boxes
     geom_boxplot(width = 0.55, position = position_dodge(0.62),
                  outlier.shape = 21, outlier.size = 1.2, outlier.alpha = 0.5,
                  colour = "grey25", linewidth = 0.5) +
@@ -74,16 +82,12 @@ panel <- function(col, ylab, title, show_null1 = FALSE) {
     theme_classic(base_size = 12) +
     theme(legend.position = "bottom",
           plot.title = element_text(size = 11, face = "bold"))
-  
-  if (show_null1)
-    p <- p + geom_hline(yintercept = 1, linetype = "dashed", colour = "grey40") +
-    annotate("text", x = 0.5, y = 1, label = "neutral (= 1)",
-             hjust = 0, vjust = -0.5, size = 3, colour = "grey40")
-  p
 }
 
-pA <- panel("dNdS_weighted", "Weighted dN/dS", "Weighted", show_null1 = TRUE)
-pB <- panel("dNdS",          "Unweighted pN/pS", "Unweighted", show_null1 = FALSE)
+pA <- panel("dNdS",          "Unweighted mN/mS", "Unweighted")
+pB <- panel("dNdS_weighted", "Weighted mN/mS",   "Weighted")
+
+
 
 ## ---- assemble (shared legend, free y per panel, A/B tags) ----------------- #
 figS <- (pA | pB) +

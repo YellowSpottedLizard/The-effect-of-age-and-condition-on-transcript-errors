@@ -105,7 +105,7 @@ xr <- max(abs(c(forest_dat$lcl, forest_dat$ucl)), na.rm = TRUE) * c(-0.5, 1) * 1
 # inside-legend placement (API changed in ggplot2 3.5.0)
 legend_inside <- if (utils::packageVersion("ggplot2") >= "3.5.0") {
   theme(legend.position = "inside",
-        legend.position.inside = c(0.99, 0.02),
+        legend.position.inside = c(0.64, 0.02),
         legend.justification = c(1, 0))
 } else {
   theme(legend.position = c(0.99, 0.02),
@@ -114,15 +114,15 @@ legend_inside <- if (utils::packageVersion("ggplot2") >= "3.5.0") {
 
 pA <- ggplot(forest_dat, aes(diff, channel)) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey55") +
-  geom_errorbar(aes(xmin = lcl, xmax = ucl), orientation = "y", width = 0.28, linewidth = 0.5, colour = "grey40") +  geom_point(aes(colour = sig), size = 2.5) +
+  geom_errorbar(aes(xmin = lcl, xmax = ucl), orientation = "y", width = 0.28, linewidth = 0.5, colour = "grey40") +  geom_point(aes(colour = sig), size = 2.8) +
   scale_colour_manual(values = c(`TRUE` = "#33BB36", `FALSE` = "grey55"),
-                      labels = c(`TRUE` = "FDR < 0.05", `FALSE` = "ns"),
+                      labels = c(`TRUE` = "FDR adj. p-value < 0.05", `FALSE` = "ns"),
                       drop = FALSE, name = NULL) +
   facet_wrap(~ factor) +                                    # fixed = shared x axis
   coord_cartesian(xlim = xr) +
   scale_y_discrete(expand = expansion(add = c(1.1, 0.6))) +  # room at the bottom for the legend
   labs(x = "Mismatch differences / Mb", y = NULL) +
-  theme_classic(base_size = 12) +
+  theme_classic(base_size = 14) +
   theme(strip.background = element_blank(),
         strip.text       = element_text(face = "bold"),
         panel.spacing    = unit(1.1, "lines"),
@@ -130,7 +130,7 @@ pA <- ggplot(forest_dat, aes(diff, channel)) +
         legend.background = element_rect(fill = scales::alpha("white", 0.75), colour = NA),
         legend.key.height = unit(0.9, "lines"),
         legend.margin     = margin(2, 4, 2, 4)) +
-  legend_inside
+  theme(legend.position = "none")
 pA
 
 ## ===========================================================================
@@ -143,7 +143,8 @@ ct_s   <- cor.test(mech$age_d, mech$status_d, method = "spearman")
 set.seed(1)
 obs    <- cor(mech$age_d, mech$status_d)
 p_perm <- (1 + sum(abs(replicate(1e4, cor(mech$age_d, sample(mech$status_d)))) >= abs(obs))) / (1e4 + 1)
-r_lab  <- sprintf("italic(r) == %.2f", unname(ct_p$estimate))
+r_lab <- sprintf("\u03C1 = %.2f", unname(ct_s$estimate))
+
 
 pB <- ggplot(mech, aes(age_d, status_d)) +
   geom_hline(yintercept = 0, colour = "grey85") +
@@ -154,11 +155,11 @@ pB <- ggplot(mech, aes(age_d, status_d)) +
   geom_point(size = 2.8, colour = "#9B77BB") +
   geom_text_repel(aes(label = channel), size = 3, seed = 1,
                   min.segment.length = 0, box.padding = 0.4, colour = "grey25") +
-  annotate("text", x = 0, y = Inf, label = r_lab, parse = TRUE,
+  annotate("text", x = 0, y = Inf, label = r_lab, 
            hjust = -0.3, vjust = 1.6, size = 4, colour = "grey20") +
-  labs(x = "Age effect (Old - Young, mismatch / Mb)",
-       y = "Condition effect (Deletion - Control, mismatch / Mb)") +
-  theme_classic(base_size = 12)
+  labs(x = "Age effect, mismatch / Mb",
+       y = "Condition effect, mismatch / Mb") +
+  theme_classic(base_size = 14)
 
 ## ---- assemble ------------------------------------------------------------- #
 fig2 <- (pA | pB) +
@@ -183,8 +184,10 @@ corr_tbl <- tibble(
 )
 write_csv(corr_tbl, file.path(OUT_DIR, "Fig2_correlation_stats.csv"))
 
+
 message("Fig 2 written to: ", OUT_DIR)
 message(sprintf("Pearson r = %.2f | Spearman rho = %.2f | perm p = %.4f",
                 ct_p$estimate, ct_s$estimate, p_perm))
+
 
 
